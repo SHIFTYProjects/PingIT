@@ -1,0 +1,245 @@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# ---------------------------
+# Globals
+# ---------------------------
+$global:Devices = @()
+$global:Panels  = @{}
+$global:Running = $false
+$global:Paused  = $false
+$global:Index   = 0
+$global:DelayCounter = 0  # Used to create 2s delay
+$global:GreenToggle = $true  # Tracks black ↔ green
+
+# ---------------------------
+# Form (1400 x 800)
+# ---------------------------
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "IP Monitor Dashboard"
+$form.BackColor = [System.Drawing.Color]::FromArgb(30,30,30)
+$form.ForeColor = [System.Drawing.Color]::White
+$form.StartPosition = "CenterScreen"
+$form.FormBorderStyle = "FixedDialog"
+$form.MaximizeBox = $false
+$form.Size = New-Object System.Drawing.Size(1400, 800)
+
+# ---------------------------
+# Grid Container (10 x 8)
+# ---------------------------
+$grid = New-Object System.Windows.Forms.TableLayoutPanel
+$grid.Location = New-Object System.Drawing.Point(10,10)
+$grid.Size = New-Object System.Drawing.Size(1380, 640)
+$grid.ColumnCount = 10
+$grid.RowCount = 8
+$grid.BackColor = [System.Drawing.Color]::FromArgb(20,20,20)
+$grid.ColumnStyles.Clear()
+$grid.RowStyles.Clear()
+$grid.GrowStyle = [System.Windows.Forms.TableLayoutPanelGrowStyle]::FixedSize
+$grid.Dock = 'None'
+
+for ($i=0; $i -lt 10; $i++) {
+    $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 135)))
+}
+for ($i=0; $i -lt 8; $i++) {
+    $grid.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 75)))
+}
+$form.Controls.Add($grid)
+
+# ---------------------------
+# Create 80 Panels
+# ---------------------------
+for ($slot=0; $slot -lt 80; $slot++) {
+    $panel = New-Object System.Windows.Forms.Panel
+    $panel.Dock = "Fill"
+    $panel.Margin = "2,2,2,2"
+    $panel.BackColor = [System.Drawing.Color]::FromArgb(45,45,45)
+
+    $icon = New-Object System.Windows.Forms.Label
+    $icon.Font = "Segoe UI Emoji,18"
+    $icon.Text = ""
+    $icon.Location = New-Object System.Drawing.Point(5,20)
+    $icon.Size = New-Object System.Drawing.Size(40,40)
+
+    $name = New-Object System.Windows.Forms.Label
+    $name.Font = "Segoe UI,8"
+    $name.Text = ""
+    $name.Location = New-Object System.Drawing.Point(5,5)
+    $name.Size = New-Object System.Drawing.Size(110,18)
+
+    $ip = New-Object System.Windows.Forms.Label
+    $ip.Font = "Segoe UI,8"
+    $ip.Text = ""
+    $ip.ForeColor = "yellow"
+    $ip.Location = New-Object System.Drawing.Point(45,30)
+    $ip.Size = New-Object System.Drawing.Size(120,15)
+
+    $last = New-Object System.Windows.Forms.Label
+    $last.Font = "Segoe UI,7"
+    $last.Text = ""
+    $last.Location = New-Object System.Drawing.Point(45,48)
+    $last.Size = New-Object System.Drawing.Size(120,15)
+
+    $panel.Controls.AddRange(@($icon,$name,$ip,$last))
+    $grid.Controls.Add($panel)
+
+    $global:Panels[$slot] = @{
+        Panel = $panel
+        Icon  = $icon
+        Name  = $name
+        IP    = $ip
+        Last  = $last
+    }
+}
+
+# ---------------------------
+# Buttons
+# ---------------------------
+$btnLoad = New-Object System.Windows.Forms.Button
+$btnLoad.Text = "Load Devices"
+$btnLoad.Size = New-Object System.Drawing.Size(120,30)
+$btnLoad.Location = New-Object System.Drawing.Point(10,660)
+$btnLoad.BackColor = [System.Drawing.Color]::SteelBlue
+$btnLoad.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($btnLoad)
+
+$btnStart = New-Object System.Windows.Forms.Button
+$btnStart.Text = "Start"
+$btnStart.Size = New-Object System.Drawing.Size(120,30)
+$btnStart.Location = New-Object System.Drawing.Point(140,660)
+$btnStart.BackColor = [System.Drawing.Color]::SteelBlue
+$btnStart.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($btnStart)
+
+$btnPause = New-Object System.Windows.Forms.Button
+$btnPause.Text = "Pause"
+$btnPause.Size = New-Object System.Drawing.Size(120,30)
+$btnPause.Location = New-Object System.Drawing.Point(270,660)
+$btnPause.BackColor = [System.Drawing.Color]::SteelBlue
+$btnPause.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($btnPause)
+
+$status = New-Object System.Windows.Forms.Label
+$status.Text = "Idle"
+$status.Location = New-Object System.Drawing.Point(410,665)
+$status.Size = New-Object System.Drawing.Size(500,25)
+$form.Controls.Add($status)
+
+# ---------------------------
+# Load Devices
+# ---------------------------
+$btnLoad.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    if ($dlg.ShowDialog() -ne "OK") { return }
+
+    # Remove empty entries
+    $global:Devices = Get-Content $dlg.FileName | Where-Object { $_.Trim() -ne "" } | Select-Object -First 80
+    $global:Index = 0
+
+    # Reset all panels
+    for ($i=0; $i -lt 80; $i++) {
+        $p = $global:Panels[$i]
+        $p.Icon.Text = ""
+        $p.Name.Text = ""
+        $p.IP.Text = ""
+        $p.Last.Text = ""
+        $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(45,45,45)
+    }
+
+    # Assign devices to panels
+    for ($i=0; $i -lt $global:Devices.Count; $i++) {
+        $deviceName = $global:Devices[$i]
+        $p = $global:Panels[$i]
+
+        switch ($deviceName.Substring(0,1)) {
+            "A" { $p.Icon.Text = "🖥️" }
+            "M" { $p.Icon.Text = "🖥️" }
+            "N" { $p.Icon.Text = "💻" }
+            "T" { $p.Icon.Text = "🗄️" }
+        }
+
+        $p.Name.Text = $deviceName
+    }
+
+    $status.Text = "Loaded $($global:Devices.Count) devices"
+})
+
+# ---------------------------
+# Timer Ping Loop
+# ---------------------------
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 500  
+
+$timer.Add_Tick({
+    if (-not $global:Running) { return }
+    if ($global:Paused) { return }
+    if ($global:Devices.Count -eq 0) { return }
+
+    $global:DelayCounter++
+    if ($global:DelayCounter -lt 4) { return } # 2s delay
+    $global:DelayCounter = 0
+
+    # Start of new round, flip green toggle
+    if ($global:Index -ge $global:Devices.Count) {
+        $global:Index = 0
+        $global:GreenToggle = -not $global:GreenToggle
+    }
+
+    $deviceName = $global:Devices[$global:Index]
+
+    # Safety: skip if empty
+    if ([string]::IsNullOrWhiteSpace($deviceName)) {
+        $global:Index++
+        return
+    }
+
+    $p = $global:Panels[$global:Index]
+
+    # Highlight panel while pinging
+    $p.Panel.BackColor = [System.Drawing.Color]::DarkGreen
+    $p.Panel.Refresh()
+
+    # Send ping
+    $ping = Test-Connection -ComputerName $deviceName -Count 1 -ErrorAction SilentlyContinue
+    $ipAddress = ""
+    if ($ping) {
+        try { $ipAddress = [System.Net.Dns]::GetHostAddresses($deviceName)[0].IPAddressToString } catch { $ipAddress = "Unknown" }
+        # Toggle between black and green
+        if ($global:GreenToggle) {
+            $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(0,90,0)   # green
+        } else {
+            $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(45,45,45) # black
+        }
+    } else {
+        $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(90,0,0) # red
+        $ipAddress = "Offline"
+    }
+
+    $p.IP.Text   = $ipAddress
+    $p.Last.Text = (Get-Date).ToString("HH:mm:ss")
+    $status.Text = "Last pinged: $deviceName"
+
+    $global:Index++
+})
+
+# ---------------------------
+# Start / Pause
+# ---------------------------
+$btnStart.Add_Click({
+    if ($global:Devices.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("Load devices first")
+        return
+    }
+    $global:Running = $true
+    $global:Paused  = $false
+    $timer.Start()
+})
+
+$btnPause.Add_Click({
+    $global:Paused = -not $global:Paused
+})
+
+# ---------------------------
+# Run
+# ---------------------------
+[void]$form.ShowDialog()
