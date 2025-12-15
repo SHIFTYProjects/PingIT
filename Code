@@ -176,7 +176,7 @@ $timer.Add_Tick({
     if ($global:Devices.Count -eq 0) { return }
 
     $global:DelayCounter++
-    if ($global:DelayCounter -lt 4) { return } # 2s delay
+    if ($global:DelayCounter -lt 2) { return } # 2s delay
     $global:DelayCounter = 0
 
     # Start of new round, flip green toggle
@@ -200,20 +200,22 @@ $timer.Add_Tick({
     $p.Panel.Refresh()
 
     # Send ping
-    $ping = Test-Connection -ComputerName $deviceName -Count 1 -ErrorAction SilentlyContinue
-    $ipAddress = ""
-    if ($ping) {
-        try { $ipAddress = [System.Net.Dns]::GetHostAddresses($deviceName)[0].IPAddressToString } catch { $ipAddress = "Unknown" }
-        # Toggle between black and green
-        if ($global:GreenToggle) {
-            $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(0,90,0)   # green
-        } else {
-            $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(45,45,45) # black
-        }
+  $ping = Test-Connection -ComputerName $deviceName -Count 1 -ErrorAction SilentlyContinue
+$ipAddress = ""
+if ($ping) {
+    # Use the IP returned by ping
+    $ipAddress = $ping.IPV4Address.IPAddressToString
+    # Alternate black ↔ green based on the round toggle
+    if ($global:GreenToggle) {
+        $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(0,90,0)   # green
     } else {
-        $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(90,0,0) # red
-        $ipAddress = "Offline"
+        $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(45,45,45) # black
     }
+} else {
+    $ipAddress = "Offline"
+    $p.Panel.BackColor = [System.Drawing.Color]::FromArgb(90,0,0) # red
+}
+
 
     $p.IP.Text   = $ipAddress
     $p.Last.Text = (Get-Date).ToString("HH:mm:ss")
